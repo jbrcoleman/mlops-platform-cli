@@ -1,0 +1,216 @@
+"""PyTorch training script for {{ project_name }}."""
+
+import os
+import yaml
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+import mlflow
+import mlflow.pytorch
+from pathlib import Path
+from sklearn.datasets import make_classification
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+
+
+class SimpleNN(nn.Module):
+    """Simple neural network for demonstration."""
+
+    def __init__(self, input_dim, hidden_dim=64, output_dim=2):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def forward(self, x):
+        return self.network(x)
+
+
+def load_config(config_path="config.yaml"):
+    """Load experiment configuration."""
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
+
+def load_data(config):
+    """Load and prepare data."""
+    # Example: synthetic data (replace with your data loading)
+    X, y = make_classification(
+        n_samples=1000,
+        n_features=20,
+        n_informative=15,
+        n_classes=2,
+        random_state=config["model"]["random_seed"]
+    )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=config["model"]["random_seed"]
+    )
+
+    # Standardize features
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    return X_train, X_test, y_train, y_test, scaler
+
+
+def create_dataloaders(X_train, X_test, y_train, y_test, batch_size):
+    """Create PyTorch dataloaders."""
+    train_dataset = TensorDataset(
+        torch.FloatTensor(X_train),
+        torch.LongTensor(y_train)
+    )
+    test_dataset = TensorDataset(
+        torch.FloatTensor(X_test),
+        torch.LongTensor(y_test)
+    )
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size)
+
+    return train_loader, test_loader
+
+
+def train_epoch(model, train_loader, criterion, optimizer, device):
+    """Train for one epoch."""
+    model.train()
+    total_loss = 0
+    correct = 0
+    total = 0
+
+    for inputs, targets in train_loader:
+        inputs, targets = inputs.to(device), targets.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+        _, predicted = outputs.max(1)
+        total += targets.size(0)
+        correct += predicted.eq(targets).sum().item()
+
+    return total_loss / len(train_loader), correct / total
+
+
+def evaluate(model, test_loader, criterion, device):
+    """Evaluate model."""
+    model.eval()
+    total_loss = 0
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for inputs, targets in test_loader:
+            inputs, targets = inputs.to(device), targets.to(device)
+
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+
+            total_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += targets.size(0)
+            correct += predicted.eq(targets).sum().item()
+
+    return total_loss / len(test_loader), correct / total
+
+
+def main():
+    """Main training pipeline."""
+    # Load configuration
+    config = load_config()
+
+    # Set random seed
+    torch.manual_seed(config["model"]["random_seed"])
+    np.random.seed(config["model"]["random_seed"])
+
+    # Device
+    device = torch.device("cuda" if torch.cuda.is_available() and config["training"]["use_gpu"] else "cpu")
+    print(f"Using device: {device}")
+
+    # Initialize MLflow
+    mlflow.set_experiment(config["mlflow"]["experiment_name"])
+
+    with mlflow.start_run():
+        # Log parameters
+        mlflow.log_params(config["model"])
+        mlflow.set_tags(config["experiment"]["tags"])
+
+        # Load data
+        print("Loading data...")
+        X_train, X_test, y_train, y_test, scaler = load_data(config)
+        print(f"Train size: {X_train.shape}, Test size: {X_test.shape}")
+
+        # Create dataloaders
+        train_loader, test_loader = create_dataloaders(
+            X_train, X_test, y_train, y_test,
+            batch_size=config["model"]["batch_size"]
+        )
+
+        # Create model
+        model = SimpleNN(input_dim=X_train.shape[1]).to(device)
+        print(f"\nModel: {model}")
+
+        # Loss and optimizer
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(model.parameters(), lr=config["model"]["learning_rate"])
+
+        # Training loop
+        print("\nTraining...")
+        best_acc = 0.0
+        patience_counter = 0
+
+        for epoch in range(config["model"]["epochs"]):
+            train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+            test_loss, test_acc = evaluate(model, test_loader, criterion, device)
+
+            # Log metrics
+            mlflow.log_metrics({
+                "train_loss": train_loss,
+                "train_accuracy": train_acc,
+                "test_loss": test_loss,
+                "test_accuracy": test_acc,
+            }, step=epoch)
+
+            print(f"Epoch {epoch+1}/{config['model']['epochs']}: "
+                  f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, "
+                  f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.4f}")
+
+            # Early stopping
+            if test_acc > best_acc:
+                best_acc = test_acc
+                patience_counter = 0
+
+                # Save best model
+                model_dir = Path(config["training"]["checkpoint_dir"])
+                model_dir.mkdir(parents=True, exist_ok=True)
+                model_path = model_dir / "best_model.pth"
+                torch.save(model.state_dict(), model_path)
+            else:
+                patience_counter += 1
+                if patience_counter >= config["training"]["early_stopping_patience"]:
+                    print(f"Early stopping triggered at epoch {epoch+1}")
+                    break
+
+        # Log final metrics
+        mlflow.log_metric("best_test_accuracy", best_acc)
+
+        # Log model
+        mlflow.pytorch.log_model(model, "model")
+
+        print(f"\n✓ Training complete! Best test accuracy: {best_acc:.4f}")
+
+
+if __name__ == "__main__":
+    main()

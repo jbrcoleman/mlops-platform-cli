@@ -1,0 +1,179 @@
+"""TensorFlow/Keras training script for {{ project_name }}."""
+
+import os
+import yaml
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+import mlflow
+import mlflow.keras
+from pathlib import Path
+from sklearn.datasets import make_classification
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+
+def load_config(config_path="config.yaml"):
+    """Load experiment configuration."""
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
+
+def create_model(input_dim, hidden_dim=64, output_dim=2):
+    """Create a simple neural network."""
+    model = keras.Sequential([
+        layers.Dense(hidden_dim, activation='relu', input_shape=(input_dim,)),
+        layers.Dropout(0.2),
+        layers.Dense(hidden_dim, activation='relu'),
+        layers.Dropout(0.2),
+        layers.Dense(output_dim, activation='softmax')
+    ])
+
+    return model
+
+
+def load_data(config):
+    """Load and prepare data."""
+    # Example: synthetic data (replace with your data loading)
+    X, y = make_classification(
+        n_samples=1000,
+        n_features=20,
+        n_informative=15,
+        n_classes=2,
+        random_state=config["model"]["random_seed"]
+    )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=config["model"]["random_seed"]
+    )
+
+    # Standardize features
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    return X_train, X_test, y_train, y_test, scaler
+
+
+def main():
+    """Main training pipeline."""
+    # Load configuration
+    config = load_config()
+
+    # Set random seed
+    tf.random.set_seed(config["model"]["random_seed"])
+    np.random.seed(config["model"]["random_seed"])
+
+    # GPU configuration
+    if config["training"]["use_gpu"]:
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            print(f"Using GPU: {gpus}")
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+        else:
+            print("No GPU found, using CPU")
+    else:
+        # Force CPU
+        tf.config.set_visible_devices([], 'GPU')
+        print("Using CPU")
+
+    # Initialize MLflow
+    mlflow.set_experiment(config["mlflow"]["experiment_name"])
+
+    with mlflow.start_run():
+        # Log parameters
+        mlflow.log_params(config["model"])
+        mlflow.set_tags(config["experiment"]["tags"])
+
+        # Load data
+        print("\nLoading data...")
+        X_train, X_test, y_train, y_test, scaler = load_data(config)
+        print(f"Train size: {X_train.shape}, Test size: {X_test.shape}")
+
+        # Create model
+        print("\nCreating model...")
+        model = create_model(input_dim=X_train.shape[1])
+        model.summary()
+
+        # Compile model
+        model.compile(
+            optimizer=keras.optimizers.Adam(learning_rate=config["model"]["learning_rate"]),
+            loss='sparse_categorical_crossentropy',
+            metrics=['accuracy']
+        )
+
+        # Callbacks
+        checkpoint_dir = Path(config["training"]["checkpoint_dir"])
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        callbacks = [
+            keras.callbacks.EarlyStopping(
+                monitor='val_loss',
+                patience=config["training"]["early_stopping_patience"],
+                restore_best_weights=True
+            ),
+            keras.callbacks.ModelCheckpoint(
+                filepath=str(checkpoint_dir / "best_model.h5"),
+                monitor='val_accuracy',
+                save_best_only=True
+            ),
+            keras.callbacks.ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=3
+            )
+        ]
+
+        # Train model
+        print("\nTraining...")
+        history = model.fit(
+            X_train, y_train,
+            validation_data=(X_test, y_test),
+            epochs=config["model"]["epochs"],
+            batch_size=config["model"]["batch_size"],
+            callbacks=callbacks,
+            verbose=1
+        )
+
+        # Log metrics to MLflow
+        for epoch, (loss, acc, val_loss, val_acc) in enumerate(
+            zip(
+                history.history['loss'],
+                history.history['accuracy'],
+                history.history['val_loss'],
+                history.history['val_accuracy']
+            )
+        ):
+            mlflow.log_metrics({
+                "train_loss": loss,
+                "train_accuracy": acc,
+                "val_loss": val_loss,
+                "val_accuracy": val_acc,
+            }, step=epoch)
+
+        # Final evaluation
+        print("\nFinal evaluation...")
+        test_loss, test_acc = model.evaluate(X_test, y_test, verbose=0)
+        print(f"Test Loss: {test_loss:.4f}, Test Accuracy: {test_acc:.4f}")
+
+        # Log final metrics
+        mlflow.log_metrics({
+            "final_test_loss": test_loss,
+            "final_test_accuracy": test_acc
+        })
+
+        # Save model
+        model_path = checkpoint_dir / "final_model.h5"
+        model.save(model_path)
+        print(f"\nModel saved to: {model_path}")
+
+        # Log model to MLflow
+        mlflow.keras.log_model(model, "model")
+
+        print("\n✓ Training complete!")
+
+
+if __name__ == "__main__":
+    main()

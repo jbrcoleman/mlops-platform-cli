@@ -1,0 +1,93 @@
+# {{ project_name }}
+
+ML experiment project created with MLP CLI.
+
+## Project Structure
+
+```
+{{ project_name }}/
+├── train.py           # Main training script
+├── config.yaml        # Experiment configuration
+├── requirements.txt   # Python dependencies
+├── data/             # Training data (tracked with DVC)
+├── models/           # Saved model artifacts
+├── notebooks/        # Jupyter notebooks for exploration
+└── src/              # Source code modules
+```
+
+## Getting Started
+
+### 1. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Configure Experiment
+
+Edit `config.yaml` to set hyperparameters and paths:
+
+```yaml
+model:
+  learning_rate: 0.001
+  epochs: 10
+  batch_size: 32
+```
+
+### 3. Run Training Locally
+
+```bash
+python train.py
+```
+
+### 4. Submit to Kubernetes
+
+```bash
+mlp experiment run . --gpu 1 --wait
+```
+
+## MLflow Tracking
+
+This project automatically logs to MLflow:
+
+- Parameters: All hyperparameters from config.yaml
+- Metrics: Loss, accuracy, etc.
+- Artifacts: Model checkpoints, plots
+
+View experiments:
+```bash
+mlflow ui
+```
+
+## DVC for Data Versioning
+
+Track data with DVC:
+
+```bash
+# Add data to DVC
+dvc add data/dataset.csv
+
+# Push to remote storage
+dvc push
+
+# Pull data
+dvc pull
+```
+
+## Development
+
+Run tests:
+```bash
+pytest tests/
+```
+
+Format code:
+```bash
+black train.py src/
+```
+
+## Resources
+
+- [MLP CLI Documentation](https://github.com/your-org/mlp-cli)
+- [MLflow Documentation](https://mlflow.org/)
+- [DVC Documentation](https://dvc.org/)

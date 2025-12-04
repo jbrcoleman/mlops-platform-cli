@@ -1,0 +1,215 @@
+"""Scikit-learn training script for {{ project_name }}."""
+
+import os
+import yaml
+import mlflow
+import mlflow.sklearn
+import numpy as np
+import pandas as pd
+from pathlib import Path
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score, f1_score, precision_score, recall_score,
+    confusion_matrix, classification_report, roc_auc_score
+)
+from sklearn.preprocessing import StandardScaler
+from sklearn.datasets import make_classification
+import joblib
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+def load_config(config_path="config.yaml"):
+    """Load experiment configuration."""
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
+
+def load_data(config):
+    """Load and prepare data.
+
+    Replace this with your actual data loading logic.
+    """
+    # Example: synthetic data (replace with your data loading)
+    X, y = make_classification(
+        n_samples=1000,
+        n_features=20,
+        n_informative=15,
+        n_redundant=5,
+        random_state=config["model"]["random_seed"]
+    )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y,
+        test_size=0.2,
+        random_state=config["model"]["random_seed"]
+    )
+
+    return X_train, X_test, y_train, y_test
+
+
+def create_model(model_type="random_forest", random_seed=42):
+    """Create a scikit-learn model."""
+    models = {
+        "random_forest": RandomForestClassifier(
+            n_estimators=100,
+            max_depth=10,
+            random_state=random_seed
+        ),
+        "gradient_boosting": GradientBoostingClassifier(
+            n_estimators=100,
+            learning_rate=0.1,
+            max_depth=5,
+            random_state=random_seed
+        ),
+        "logistic_regression": LogisticRegression(
+            max_iter=1000,
+            random_state=random_seed
+        ),
+    }
+
+    return models.get(model_type, models["random_forest"])
+
+
+def evaluate_model(model, X_test, y_test):
+    """Comprehensive model evaluation."""
+    y_pred = model.predict(X_test)
+    y_pred_proba = model.predict_proba(X_test)[:, 1] if hasattr(model, 'predict_proba') else None
+
+    metrics = {
+        "accuracy": accuracy_score(y_test, y_pred),
+        "f1_score": f1_score(y_test, y_pred, average="weighted"),
+        "precision": precision_score(y_test, y_pred, average="weighted"),
+        "recall": recall_score(y_test, y_pred, average="weighted"),
+    }
+
+    if y_pred_proba is not None:
+        metrics["roc_auc"] = roc_auc_score(y_test, y_pred_proba)
+
+    return metrics, y_pred
+
+
+def plot_confusion_matrix(y_test, y_pred, output_path):
+    """Plot and save confusion matrix."""
+    cm = confusion_matrix(y_test, y_pred)
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.title('Confusion Matrix')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+
+
+def plot_feature_importance(model, output_path, n_features=10):
+    """Plot and save feature importance."""
+    if hasattr(model, 'feature_importances_'):
+        importances = model.feature_importances_
+        indices = np.argsort(importances)[::-1][:n_features]
+
+        plt.figure(figsize=(10, 6))
+        plt.title('Top Feature Importances')
+        plt.bar(range(n_features), importances[indices])
+        plt.xlabel('Feature Index')
+        plt.ylabel('Importance')
+        plt.tight_layout()
+        plt.savefig(output_path)
+        plt.close()
+
+
+def main():
+    """Main training pipeline."""
+    # Load configuration
+    config = load_config()
+
+    # Set random seed
+    np.random.seed(config["model"]["random_seed"])
+
+    # Initialize MLflow
+    mlflow.set_experiment(config["mlflow"]["experiment_name"])
+
+    with mlflow.start_run():
+        # Log parameters
+        mlflow.log_params(config["model"])
+        mlflow.set_tags(config["experiment"]["tags"])
+
+        # Load data
+        print("Loading data...")
+        X_train, X_test, y_train, y_test = load_data(config)
+        print(f"Train size: {X_train.shape}, Test size: {X_test.shape}")
+
+        # Optional: Feature scaling
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+
+        # Create model
+        print("\nTraining model...")
+        model = create_model(
+            model_type="random_forest",
+            random_seed=config["model"]["random_seed"]
+        )
+
+        # Cross-validation
+        cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=5)
+        print(f"Cross-validation scores: {cv_scores}")
+        print(f"Mean CV score: {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+        mlflow.log_metric("cv_mean", cv_scores.mean())
+        mlflow.log_metric("cv_std", cv_scores.std())
+
+        # Train model
+        model.fit(X_train_scaled, y_train)
+
+        # Evaluate
+        print("\nEvaluating model...")
+        metrics, y_pred = evaluate_model(model, X_test_scaled, y_test)
+
+        # Log metrics
+        mlflow.log_metrics(metrics)
+
+        # Print results
+        print("\nResults:")
+        for metric_name, value in metrics.items():
+            print(f"  {metric_name}: {value:.4f}")
+
+        # Print classification report
+        print("\nClassification Report:")
+        print(classification_report(y_test, y_pred))
+
+        # Create plots
+        model_dir = Path(config["training"]["checkpoint_dir"])
+        model_dir.mkdir(parents=True, exist_ok=True)
+
+        # Confusion matrix
+        cm_path = model_dir / "confusion_matrix.png"
+        plot_confusion_matrix(y_test, y_pred, cm_path)
+        mlflow.log_artifact(cm_path)
+
+        # Feature importance
+        fi_path = model_dir / "feature_importance.png"
+        plot_feature_importance(model, fi_path)
+        mlflow.log_artifact(fi_path)
+
+        # Save model
+        model_path = model_dir / "model.pkl"
+        joblib.dump({"model": model, "scaler": scaler}, model_path)
+        print(f"\nModel saved to: {model_path}")
+
+        # Log model to MLflow with signature
+        # Use a sample from test data as input example
+        input_example = X_test_scaled[:5]
+        mlflow.sklearn.log_model(
+            model,
+            name="model",
+            input_example=input_example
+        )
+
+        print("\n✓ Training complete!")
+
+
+if __name__ == "__main__":
+    main()

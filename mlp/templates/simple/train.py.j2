@@ -1,0 +1,122 @@
+"""Training script for {{ project_name }}."""
+
+import os
+import yaml
+import mlflow
+import numpy as np
+from pathlib import Path
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+import joblib
+
+
+def load_config(config_path="config.yaml"):
+    """Load experiment configuration."""
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
+
+def load_data(config):
+    """Load and prepare data.
+
+    Replace this with your actual data loading logic.
+    """
+    # Example: Load from CSV, database, or API
+    # For demo purposes, using synthetic data
+    from sklearn.datasets import make_classification
+
+    X, y = make_classification(
+        n_samples=1000,
+        n_features=20,
+        n_informative=15,
+        n_redundant=5,
+        random_state=config["model"]["random_seed"]
+    )
+
+    return train_test_split(
+        X, y,
+        test_size=0.2,
+        random_state=config["model"]["random_seed"]
+    )
+
+
+def train_model(X_train, y_train, config):
+    """Train the model."""
+    model = RandomForestClassifier(
+        n_estimators=100,
+        max_depth=10,
+        random_state=config["model"]["random_seed"]
+    )
+
+    model.fit(X_train, y_train)
+    return model
+
+
+def evaluate_model(model, X_test, y_test):
+    """Evaluate model performance."""
+    y_pred = model.predict(X_test)
+
+    metrics = {
+        "accuracy": accuracy_score(y_test, y_pred),
+        "f1_score": f1_score(y_test, y_pred, average="weighted"),
+        "precision": precision_score(y_test, y_pred, average="weighted"),
+        "recall": recall_score(y_test, y_pred, average="weighted"),
+    }
+
+    return metrics
+
+
+def main():
+    """Main training pipeline."""
+    # Load configuration
+    config = load_config()
+
+    # Set random seed
+    np.random.seed(config["model"]["random_seed"])
+
+    # Initialize MLflow
+    mlflow.set_experiment(config["mlflow"]["experiment_name"])
+
+    with mlflow.start_run():
+        # Log parameters
+        mlflow.log_params(config["model"])
+        mlflow.set_tags(config["experiment"]["tags"])
+
+        # Load data
+        print("Loading data...")
+        X_train, X_test, y_train, y_test = load_data(config)
+        print(f"Train size: {X_train.shape}, Test size: {X_test.shape}")
+
+        # Train model
+        print("Training model...")
+        model = train_model(X_train, y_train, config)
+
+        # Evaluate
+        print("Evaluating model...")
+        metrics = evaluate_model(model, X_test, y_test)
+
+        # Log metrics
+        mlflow.log_metrics(metrics)
+
+        # Print results
+        print("\nResults:")
+        for metric_name, value in metrics.items():
+            print(f"  {metric_name}: {value:.4f}")
+
+        # Save model
+        model_dir = Path(config["training"]["checkpoint_dir"])
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model_path = model_dir / "model.pkl"
+
+        joblib.dump(model, model_path)
+        print(f"\nModel saved to: {model_path}")
+
+        # Log model to MLflow
+        mlflow.sklearn.log_model(model, "model")
+
+        print("\n✓ Training complete!")
+
+
+if __name__ == "__main__":
+    main()

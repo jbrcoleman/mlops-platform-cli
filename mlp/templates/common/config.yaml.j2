@@ -1,0 +1,38 @@
+# Experiment Configuration for {{ project_name }}
+
+experiment:
+  name: {{ project_name }}
+  description: ML experiment created with MLP CLI
+  tags:
+    framework: {{ template }}
+    created_by: mlp-cli
+
+model:
+  # Model hyperparameters
+  learning_rate: 0.001
+  batch_size: 32
+  epochs: 10
+  random_seed: 42
+
+data:
+  # Data paths (relative to project root)
+  train_path: data/train.csv
+  val_path: data/val.csv
+  test_path: data/test.csv
+
+training:
+  # Training configuration
+  use_gpu: true
+  num_workers: 4
+  early_stopping_patience: 5
+  checkpoint_dir: models/checkpoints
+
+mlflow:
+  # MLflow configuration
+  experiment_name: {{ project_name }}
+  run_name: null  # Auto-generated if not specified
+  tracking_uri: null  # Uses MLFLOW_TRACKING_URI env var if not set
+
+logging:
+  level: INFO
+  log_file: training.log
