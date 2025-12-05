@@ -1,0 +1,27 @@
+FROM python:3.10-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install MLflow with PostgreSQL and S3 support
+RUN pip install --no-cache-dir \
+    mlflow==2.9.2 \
+    psycopg2-binary \
+    boto3
+
+# Set working directory
+WORKDIR /mlflow
+
+# Expose MLflow port
+EXPOSE 5000
+
+# Run MLflow server
+CMD ["mlflow", "server", \
+     "--host", "0.0.0.0", \
+     "--port", "5000", \
+     "--backend-store-uri", "${BACKEND_STORE_URI}", \
+     "--default-artifact-root", "${ARTIFACT_ROOT}", \
+     "--serve-artifacts"]
