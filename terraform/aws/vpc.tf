@@ -34,8 +34,8 @@ module "vpc" {
   ]
 
   # Enable NAT Gateway for private subnet internet access
-  enable_nat_gateway = true
-  single_nat_gateway = var.environment == "dev" ? true : false # Cost optimization for dev
+  enable_nat_gateway   = true
+  single_nat_gateway   = var.environment == "dev" ? true : false # Cost optimization for dev
   enable_dns_hostnames = true
   enable_dns_support   = true
 
@@ -47,12 +47,12 @@ module "vpc" {
   # Kubernetes-specific tags
   # Required for EKS to identify subnets
   public_subnet_tags = {
-    "kubernetes.io/role/elb"                    = "1"
+    "kubernetes.io/role/elb"                      = "1"
     "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 
   private_subnet_tags = {
-    "kubernetes.io/role/internal-elb"           = "1"
+    "kubernetes.io/role/internal-elb"             = "1"
     "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 
@@ -65,6 +65,7 @@ module "vpc" {
 
 # VPC Endpoints for cost optimization and security
 # S3 Gateway Endpoint (no charge)
+# Note: Explicitly depends on EKS to ensure proper destroy order
 resource "aws_vpc_endpoint" "s3" {
   vpc_id       = module.vpc.vpc_id
   service_name = "com.amazonaws.${var.aws_region}.s3"
@@ -80,6 +81,11 @@ resource "aws_vpc_endpoint" "s3" {
       Name = "${local.cluster_name}-s3-endpoint"
     }
   )
+
+  # Ensure VPC endpoints are not deleted before EKS cluster
+  depends_on = [
+    module.eks
+  ]
 }
 
 # ECR API Endpoint (for pulling container images)
@@ -97,6 +103,11 @@ resource "aws_vpc_endpoint" "ecr_api" {
       Name = "${local.cluster_name}-ecr-api-endpoint"
     }
   )
+
+  # Ensure VPC endpoints are not deleted before EKS cluster
+  depends_on = [
+    module.eks
+  ]
 }
 
 # ECR DKR Endpoint (for pulling container images)
@@ -114,6 +125,11 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
       Name = "${local.cluster_name}-ecr-dkr-endpoint"
     }
   )
+
+  # Ensure VPC endpoints are not deleted before EKS cluster
+  depends_on = [
+    module.eks
+  ]
 }
 
 # Security group for VPC endpoints

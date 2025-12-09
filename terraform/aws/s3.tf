@@ -87,6 +87,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "mlflow_artifacts" {
     id     = "abort-incomplete-multipart-uploads"
     status = "Enabled"
 
+    filter {}
+
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
@@ -133,10 +135,10 @@ resource "aws_s3_bucket_policy" "mlflow_artifacts" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "AllowSSLRequestsOnly"
-        Effect = "Deny"
+        Sid       = "AllowSSLRequestsOnly"
+        Effect    = "Deny"
         Principal = "*"
-        Action = "s3:*"
+        Action    = "s3:*"
         Resource = [
           aws_s3_bucket.mlflow_artifacts.arn,
           "${aws_s3_bucket.mlflow_artifacts.arn}/*"
@@ -148,8 +150,8 @@ resource "aws_s3_bucket_policy" "mlflow_artifacts" {
         }
       },
       {
-        Sid    = "AllowVPCEndpointAccess"
-        Effect = "Allow"
+        Sid       = "AllowVPCEndpointAccess"
+        Effect    = "Allow"
         Principal = "*"
         Action = [
           "s3:GetObject",

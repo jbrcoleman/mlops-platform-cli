@@ -168,7 +168,10 @@ resource "kubernetes_service_account" "mlflow" {
     }
   }
 
-  depends_on = [module.mlflow_irsa]
+  depends_on = [
+    module.mlflow_irsa,
+    module.eks
+  ]
 }
 
 # Kubernetes Service Account for Training Jobs
@@ -186,7 +189,10 @@ resource "kubernetes_service_account" "training" {
     }
   }
 
-  depends_on = [module.training_irsa]
+  depends_on = [
+    module.training_irsa,
+    module.eks
+  ]
 }
 
 # IAM Policy for Secrets Manager Access (for RDS credentials)

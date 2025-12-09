@@ -475,3 +475,312 @@ def get_job_status(job_name: str, namespace: str) -> Dict:
     except ApiException as e:
         logger.error(f"Error getting job status: {e}")
         raise
+
+
+def deploy_model(
+    model_name: str,
+    model_uri: str,
+    namespace: str,
+    replicas: int = 1,
+    cpu: str = "500m",
+    memory: str = "1Gi",
+    port: int = 8080,
+    env: Optional[Dict[str, str]] = None
+):
+    """Deploy a model as a REST API service.
+
+    Args:
+        model_name: Name of the model deployment
+        model_uri: MLflow model URI (e.g., models:/my-model/1 or runs:/run-id/model)
+        namespace: Kubernetes namespace
+        replicas: Number of replicas
+        cpu: CPU request
+        memory: Memory request
+        port: Service port
+        env: Additional environment variables
+    """
+    _, core_api = get_k8s_client()
+    apps_api = client.AppsV1Api()
+
+    env = env or {}
+
+    # Build environment variables
+    env_vars = [
+        client.V1EnvVar(name="MODEL_URI", value=model_uri),
+        client.V1EnvVar(name="PORT", value=str(port)),
+    ]
+    for key, value in env.items():
+        env_vars.append(client.V1EnvVar(name=key, value=value))
+
+    # Resource requirements
+    resources = client.V1ResourceRequirements(
+        requests={"cpu": cpu, "memory": memory},
+        limits={"cpu": cpu, "memory": memory}
+    )
+
+    # Container spec - using MLflow's built-in model serving
+    container = client.V1Container(
+        name="model-server",
+        image="ghcr.io/mlflow/mlflow:v2.9.2",
+        command=[
+            "mlflow",
+            "models",
+            "serve",
+            "--model-uri",
+            model_uri,
+            "--host",
+            "0.0.0.0",
+            "--port",
+            str(port),
+            "--no-conda"
+        ],
+        ports=[client.V1ContainerPort(container_port=port)],
+        env=env_vars,
+        resources=resources,
+        readiness_probe=client.V1Probe(
+            http_get=client.V1HTTPGetAction(
+                path="/health",
+                port=port
+            ),
+            initial_delay_seconds=30,
+            period_seconds=10
+        ),
+        liveness_probe=client.V1Probe(
+            http_get=client.V1HTTPGetAction(
+                path="/health",
+                port=port
+            ),
+            initial_delay_seconds=45,
+            period_seconds=15
+        )
+    )
+
+    # Pod template
+    template = client.V1PodTemplateSpec(
+        metadata=client.V1ObjectMeta(labels={"app": model_name, "type": "model-server"}),
+        spec=client.V1PodSpec(containers=[container])
+    )
+
+    # Deployment spec
+    deployment_spec = client.V1DeploymentSpec(
+        replicas=replicas,
+        selector=client.V1LabelSelector(match_labels={"app": model_name}),
+        template=template
+    )
+
+    # Create deployment
+    deployment = client.V1Deployment(
+        api_version="apps/v1",
+        kind="Deployment",
+        metadata=client.V1ObjectMeta(name=model_name, labels={"type": "model-server"}),
+        spec=deployment_spec
+    )
+
+    try:
+        apps_api.create_namespaced_deployment(namespace, deployment)
+        logger.info(f"Created deployment: {model_name}")
+    except ApiException as e:
+        if e.status == 409:  # Already exists
+            apps_api.replace_namespaced_deployment(model_name, namespace, deployment)
+            logger.info(f"Updated deployment: {model_name}")
+        else:
+            raise
+
+    # Create service
+    service = client.V1Service(
+        api_version="v1",
+        kind="Service",
+        metadata=client.V1ObjectMeta(name=model_name, labels={"type": "model-server"}),
+        spec=client.V1ServiceSpec(
+            type="ClusterIP",
+            selector={"app": model_name},
+            ports=[client.V1ServicePort(
+                port=port,
+                target_port=port,
+                name="http"
+            )]
+        )
+    )
+
+    try:
+        core_api.create_namespaced_service(namespace, service)
+        logger.info(f"Created service: {model_name}")
+    except ApiException as e:
+        if e.status == 409:  # Already exists
+            core_api.replace_namespaced_service(model_name, namespace, service)
+            logger.info(f"Updated service: {model_name}")
+        else:
+            raise
+
+
+def list_model_deployments(namespace: str, status_filter: str = "all") -> List[Dict]:
+    """List model deployments.
+
+    Args:
+        namespace: Kubernetes namespace
+        status_filter: Filter by status (all, available, unavailable)
+
+    Returns:
+        List of deployment information dictionaries
+    """
+    apps_api = client.AppsV1Api()
+    _, core_api = get_k8s_client()
+
+    try:
+        deployments = apps_api.list_namespaced_deployment(
+            namespace,
+            label_selector="type=model-server"
+        )
+
+        result = []
+        for dep in deployments.items:
+            replicas = dep.spec.replicas or 0
+            ready_replicas = dep.status.ready_replicas or 0
+            available = ready_replicas == replicas and replicas > 0
+
+            # Apply filter
+            if status_filter == "available" and not available:
+                continue
+            if status_filter == "unavailable" and available:
+                continue
+
+            # Get service URL
+            try:
+                service = core_api.read_namespaced_service(dep.metadata.name, namespace)
+                cluster_ip = service.spec.cluster_ip
+                port = service.spec.ports[0].port
+                service_url = f"http://{cluster_ip}:{port}"
+            except ApiException:
+                service_url = None
+
+            # Calculate age
+            created = dep.metadata.creation_timestamp
+            age = time.time() - created.timestamp()
+            if age < 60:
+                age_str = f"{int(age)}s"
+            elif age < 3600:
+                age_str = f"{int(age / 60)}m"
+            elif age < 86400:
+                age_str = f"{int(age / 3600)}h"
+            else:
+                age_str = f"{int(age / 86400)}d"
+
+            result.append({
+                "name": dep.metadata.name,
+                "replicas": replicas,
+                "ready_replicas": ready_replicas,
+                "available": available,
+                "age": age_str,
+                "service_url": service_url
+            })
+
+        return result
+
+    except ApiException as e:
+        logger.error(f"Error listing deployments: {e}")
+        raise
+
+
+def delete_model_deployment(model_name: str, namespace: str):
+    """Delete a model deployment and its service.
+
+    Args:
+        model_name: Model deployment name
+        namespace: Kubernetes namespace
+    """
+    apps_api = client.AppsV1Api()
+    _, core_api = get_k8s_client()
+
+    try:
+        # Delete deployment
+        apps_api.delete_namespaced_deployment(
+            model_name,
+            namespace,
+            propagation_policy="Foreground"
+        )
+        logger.info(f"Deleted deployment: {model_name}")
+
+        # Delete service
+        try:
+            core_api.delete_namespaced_service(model_name, namespace)
+            logger.info(f"Deleted service: {model_name}")
+        except ApiException:
+            pass  # Service might not exist
+
+    except ApiException as e:
+        logger.error(f"Error deleting deployment: {e}")
+        raise
+
+
+def get_model_service_url(model_name: str, namespace: str) -> Optional[str]:
+    """Get the service URL for a model deployment.
+
+    Args:
+        model_name: Model deployment name
+        namespace: Kubernetes namespace
+
+    Returns:
+        Service URL or None if not found
+    """
+    _, core_api = get_k8s_client()
+
+    try:
+        service = core_api.read_namespaced_service(model_name, namespace)
+        cluster_ip = service.spec.cluster_ip
+        port = service.spec.ports[0].port
+        return f"http://{cluster_ip}:{port}"
+    except ApiException:
+        return None
+
+
+def stream_deployment_logs(
+    deployment_name: str,
+    namespace: str,
+    follow: bool = False,
+    tail_lines: int = 50
+):
+    """Stream logs from a deployment.
+
+    Args:
+        deployment_name: Deployment name
+        namespace: Kubernetes namespace
+        follow: Whether to follow log output
+        tail_lines: Number of lines to show from the end
+    """
+    _, core_api = get_k8s_client()
+
+    try:
+        # Find pods for deployment
+        pods = core_api.list_namespaced_pod(
+            namespace,
+            label_selector=f"app={deployment_name}"
+        )
+
+        if not pods.items:
+            logger.error(f"No pods found for deployment {deployment_name}")
+            return
+
+        # Stream logs from first pod
+        pod_name = pods.items[0].metadata.name
+
+        if follow:
+            logs = core_api.read_namespaced_pod_log(
+                pod_name,
+                namespace,
+                follow=True,
+                tail_lines=tail_lines,
+                _preload_content=False
+            )
+            for line in logs.stream():
+                print(line.decode('utf-8'), end='')
+        else:
+            logs = core_api.read_namespaced_pod_log(
+                pod_name,
+                namespace,
+                tail_lines=tail_lines
+            )
+            print(logs)
+
+    except ApiException as e:
+        logger.error(f"Error streaming logs: {e}")
+        raise

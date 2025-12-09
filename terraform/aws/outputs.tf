@@ -92,7 +92,7 @@ output "mlp_config_snippet" {
       namespace = var.k8s_namespace
     }
     mlflow = {
-      tracking_uri  = "http://localhost:5000"  # or configure ingress
+      tracking_uri  = "http://localhost:5000" # or configure ingress
       artifact_root = "s3://${aws_s3_bucket.mlflow_artifacts.id}/mlflow-artifacts"
     }
     dvc = {

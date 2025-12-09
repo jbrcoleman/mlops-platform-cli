@@ -19,13 +19,13 @@ def cli(ctx):
 
 # Import and register commands
 # We'll add these as we create them
-from mlp.commands import init, experiment
+from mlp.commands import init, experiment, model
 
 cli.add_command(init.init_cmd)
 cli.add_command(experiment.experiment)
+cli.add_command(model.model)
 
 # Future command groups (to be added later):
-# cli.add_command(model.model)
 # cli.add_command(data.data)
 # cli.add_command(pipeline.pipeline)
 # cli.add_command(monitor.monitor)

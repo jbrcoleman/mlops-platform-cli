@@ -94,7 +94,7 @@ variable "rds_allocated_storage" {
 variable "rds_engine_version" {
   description = "PostgreSQL engine version"
   type        = string
-  default     = "15"  # AWS will use latest minor version (e.g., 15.7, 15.8)
+  default     = "15" # AWS will use latest minor version (e.g., 15.7, 15.8)
 }
 
 variable "rds_database_name" {
@@ -119,7 +119,7 @@ variable "rds_backup_retention_period" {
 variable "mlflow_image" {
   description = "MLflow Docker image"
   type        = string
-  default     = "python:3.10-slim"  # Will install MLflow with PostgreSQL support
+  default     = "python:3.10-slim" # Will install MLflow with PostgreSQL support
 }
 
 variable "mlflow_replicas" {

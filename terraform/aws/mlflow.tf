@@ -109,7 +109,12 @@ resource "kubernetes_deployment" "mlflow" {
           command = ["sh", "-c"]
 
           args = [
-            "pip install --user --no-cache-dir mlflow==2.9.2 psycopg2-binary boto3 && export PATH=$PATH:/root/.local/bin && mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME --default-artifact-root s3://${aws_s3_bucket.mlflow_artifacts.id}/mlflow-artifacts --serve-artifacts --gunicorn-opts '--workers=2 --timeout=120'"
+            <<-EOT
+              pip install --user --no-cache-dir mlflow==2.9.2 psycopg2-binary boto3 && \
+              export PATH=$PATH:/root/.local/bin && \
+              python3 -c "from urllib.parse import quote_plus; import os; print('postgresql://{}:{}@{}:{}/{}'.format(os.environ['DB_USER'], quote_plus(os.environ['DB_PASSWORD']), os.environ['DB_HOST'], os.environ['DB_PORT'], os.environ['DB_NAME']))" > /tmp/db_uri.txt && \
+              mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri $(cat /tmp/db_uri.txt) --default-artifact-root s3://${aws_s3_bucket.mlflow_artifacts.id}/mlflow-artifacts --serve-artifacts --gunicorn-opts '--workers=2 --timeout=120'
+            EOT
           ]
 
           # Environment variables
@@ -212,10 +217,10 @@ resource "kubernetes_deployment" "mlflow" {
 
           # Security context
           security_context {
-            run_as_non_root             = false
-            run_as_user                 = 0  # Run as root to allow pip install
-            allow_privilege_escalation  = false
-            read_only_root_filesystem   = false
+            run_as_non_root            = false
+            run_as_user                = 0 # Run as root to allow pip install
+            allow_privilege_escalation = false
+            read_only_root_filesystem  = false
           }
         }
 
@@ -237,7 +242,8 @@ resource "kubernetes_deployment" "mlflow" {
 
   depends_on = [
     kubernetes_secret.mlflow_db,
-    aws_db_instance.mlflow
+    aws_db_instance.mlflow,
+    module.eks
   ]
 }
 
@@ -269,12 +275,11 @@ resource "kubernetes_service" "mlflow" {
       target_port = 5000
       protocol    = "TCP"
     }
-
-    session_affinity = "ClientIP"
   }
 
   depends_on = [
-    kubernetes_deployment.mlflow
+    kubernetes_deployment.mlflow,
+    module.eks
   ]
 }
 
@@ -319,18 +324,20 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "mlflow" {
 
     behavior {
       scale_down {
+        select_policy                = "Max"
         stabilization_window_seconds = 300
         policy {
-          type          = "Percent"
-          value         = 50
+          type           = "Percent"
+          value          = 50
           period_seconds = 60
         }
       }
       scale_up {
+        select_policy                = "Max"
         stabilization_window_seconds = 0
         policy {
-          type          = "Percent"
-          value         = 100
+          type           = "Percent"
+          value          = 100
           period_seconds = 30
         }
       }
@@ -338,7 +345,8 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "mlflow" {
   }
 
   depends_on = [
-    kubernetes_deployment.mlflow
+    kubernetes_deployment.mlflow,
+    module.eks
   ]
 }
 
@@ -360,7 +368,8 @@ resource "kubernetes_pod_disruption_budget_v1" "mlflow" {
   }
 
   depends_on = [
-    kubernetes_deployment.mlflow
+    kubernetes_deployment.mlflow,
+    module.eks
   ]
 }
 

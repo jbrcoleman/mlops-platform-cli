@@ -4,43 +4,55 @@
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.0"
+  version = "~> 21.0"
 
-  cluster_name    = local.cluster_name
-  cluster_version = var.eks_version
+  name               = local.cluster_name
+  kubernetes_version = var.eks_version
 
   # Cluster endpoint access
-  cluster_endpoint_public_access  = true
-  cluster_endpoint_private_access = true
+  endpoint_public_access  = true
+  endpoint_private_access = true
 
   # Cluster encryption (optional)
-  cluster_encryption_config = var.create_eks_kms_key ? {
+  encryption_config = var.create_eks_kms_key ? {
     resources        = ["secrets"]
     provider_key_arn = aws_kms_key.eks[0].arn
-  } : {}
+  } : null
 
   # VPC Configuration
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-  # Enable IRSA (IAM Roles for Service Accounts)
-  enable_irsa = true
-
   # Cluster Addons
-  cluster_addons = {
-    coredns = {
-      most_recent = true
-    }
-    kube-proxy = {
-      most_recent = true
-    }
+  # IMPORTANT: Core addons must be created BEFORE node groups
+  # Using before_compute = true ensures addons are ready before nodes join
+  addons = {
+    # VPC CNI must be first - required for pod networking
     vpc-cni = {
-      most_recent = true
+      most_recent                 = true
+      before_compute              = true # Critical: Create before node groups
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
+    # Core addons required for cluster functionality
+    kube-proxy = {
+      most_recent                 = true
+      before_compute              = true # Create before node groups
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
+    coredns = {
+      most_recent                 = true
+      before_compute              = true # Create before node groups
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
     }
     # AWS EBS CSI Driver for persistent volumes
     aws-ebs-csi-driver = {
-      most_recent              = true
-      service_account_role_arn = module.ebs_csi_irsa.iam_role_arn
+      most_recent                 = true
+      service_account_role_arn    = module.ebs_csi_irsa.iam_role_arn
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
     }
   }
 
@@ -65,7 +77,7 @@ module "eks" {
       }
 
       # Node taints (none for general purpose nodes)
-      taints = []
+      taints = {}
 
       # Additional IAM policies for nodes
       iam_role_additional_policies = {
@@ -89,7 +101,7 @@ module "eks" {
   }
 
   # Cluster security group rules
-  cluster_security_group_additional_rules = {
+  security_group_additional_rules = {
     ingress_nodes_ephemeral_ports_tcp = {
       description                = "Nodes on ephemeral ports"
       protocol                   = "tcp"
@@ -130,10 +142,27 @@ module "eks" {
     }
   }
 
-  # aws-auth configmap management
-  manage_aws_auth_configmap = true
-
   tags = local.common_tags
+}
+
+# EKS Cluster Access Entry for Terraform user
+# This grants the Terraform user admin access to the cluster
+resource "aws_eks_access_entry" "terraform_user" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = data.aws_caller_identity.current.arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "terraform_user_admin" {
+  cluster_name  = module.eks.cluster_name
+  principal_arn = data.aws_caller_identity.current.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.terraform_user]
 }
 
 # KMS Key for EKS cluster encryption (optional)
@@ -198,11 +227,11 @@ provider "kubernetes" {
 }
 
 provider "helm" {
-  kubernetes = {
+  kubernetes {
     host                   = module.eks.cluster_endpoint
     cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
 
-    exec =  {
+    exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
       args = [
@@ -217,7 +246,24 @@ provider "helm" {
   }
 }
 
+# Data source to ensure cluster is ready before creating kubernetes resources
+# This prevents the chicken-and-egg problem where kubernetes provider
+# tries to connect before addons make the cluster operational
+data "aws_eks_cluster" "cluster" {
+  name = module.eks.cluster_name
+
+  depends_on = [module.eks]
+}
+
+data "aws_eks_addon" "vpc_cni" {
+  cluster_name = module.eks.cluster_name
+  addon_name   = "vpc-cni"
+
+  depends_on = [module.eks]
+}
+
 # Create ml-platform namespace
+# Wait for VPC CNI addon to be active before creating kubernetes resources
 resource "kubernetes_namespace" "ml_platform" {
   metadata {
     name = var.k8s_namespace
@@ -228,5 +274,9 @@ resource "kubernetes_namespace" "ml_platform" {
     }
   }
 
-  depends_on = [module.eks]
+  depends_on = [
+    module.eks,
+    data.aws_eks_addon.vpc_cni,
+    data.aws_eks_cluster.cluster
+  ]
 }

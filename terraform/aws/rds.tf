@@ -103,17 +103,17 @@ resource "aws_db_parameter_group" "mlflow" {
 
   parameter {
     name  = "log_statement"
-    value = "ddl"  # Log DDL statements (less verbose than "all")
+    value = "ddl" # Log DDL statements (less verbose than "all")
   }
 
   parameter {
     name  = "log_min_duration_statement"
-    value = "1000"  # Log queries taking more than 1 second
+    value = "1000" # Log queries taking more than 1 second
   }
 
   parameter {
     name  = "idle_in_transaction_session_timeout"
-    value = "300000"  # 5 minutes - prevent hung transactions
+    value = "300000" # 5 minutes - prevent hung transactions
   }
 
   tags = merge(
@@ -133,13 +133,13 @@ resource "aws_db_instance" "mlflow" {
   identifier_prefix = "${local.cluster_name}-mlflow-"
 
   # Engine configuration
-  engine               = "postgres"
-  engine_version       = var.rds_engine_version
-  instance_class       = var.rds_instance_class
-  allocated_storage    = var.rds_allocated_storage
-  storage_type         = "gp3"
-  storage_encrypted    = true
-  kms_key_id          = aws_kms_key.rds.arn
+  engine            = "postgres"
+  engine_version    = var.rds_engine_version
+  instance_class    = var.rds_instance_class
+  allocated_storage = var.rds_allocated_storage
+  storage_type      = "gp3"
+  storage_encrypted = true
+  kms_key_id        = aws_kms_key.rds.arn
 
   # Database configuration
   db_name  = var.rds_database_name
@@ -157,8 +157,8 @@ resource "aws_db_instance" "mlflow" {
 
   # Backup configuration
   backup_retention_period = var.rds_backup_retention_period
-  backup_window          = "03:00-04:00" # UTC
-  maintenance_window     = "mon:04:00-mon:05:00" # UTC
+  backup_window           = "03:00-04:00"         # UTC
+  maintenance_window      = "mon:04:00-mon:05:00" # UTC
 
   # Enable automated backups
   skip_final_snapshot       = var.environment == "dev" ? true : false
@@ -171,11 +171,11 @@ resource "aws_db_instance" "mlflow" {
   # Monitoring
   enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
   monitoring_interval             = 60
-  monitoring_role_arn            = aws_iam_role.rds_monitoring.arn
+  monitoring_role_arn             = aws_iam_role.rds_monitoring.arn
 
   # Performance Insights
-  performance_insights_enabled    = true
-  performance_insights_kms_key_id = aws_kms_key.rds.arn
+  performance_insights_enabled          = true
+  performance_insights_kms_key_id       = aws_kms_key.rds.arn
   performance_insights_retention_period = 7
 
   # Auto minor version upgrade
