@@ -56,48 +56,14 @@ module "eks" {
     }
   }
 
-  # Managed Node Groups
-  eks_managed_node_groups = {
-    ml_workers = {
-      name = "${local.cluster_name}-ml"
-
-      instance_types = var.node_instance_types
-      capacity_type  = "ON_DEMAND"
-
-      min_size     = var.node_min_size
-      max_size     = var.node_max_size
-      desired_size = var.node_desired_size
-
-      disk_size = var.node_disk_size
-
-      # Node labels
-      labels = {
-        Environment = var.environment
-        Workload    = "ml-training"
-      }
-
-      # Node taints (none for general purpose nodes)
-      taints = {}
-
-      # Additional IAM policies for nodes
-      iam_role_additional_policies = {
-        AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-      }
-
-      # Metadata options for security
-      metadata_options = {
-        http_endpoint               = "enabled"
-        http_tokens                 = "required"
-        http_put_response_hop_limit = 1
-      }
-
-      # Enable monitoring
-      enable_monitoring = true
-
-      tags = {
-        NodeGroup = "ml-workers"
-      }
-    }
+  # EKS Auto Mode - AWS automatically manages compute infrastructure
+  # No need to configure instance types, disk sizes, or scaling
+  # AWS automatically provisions optimal compute based on workload requirements
+  compute_config = {
+    enabled = true
+    # Auto Mode will use general-purpose node pools for ML workloads
+    # Automatically handles instance selection, scaling, and optimization
+    node_pools = ["general-purpose"]
   }
 
   # Cluster security group rules
@@ -130,15 +96,6 @@ module "eks" {
       type             = "egress"
       cidr_blocks      = ["0.0.0.0/0"]
       ipv6_cidr_blocks = ["::/0"]
-    }
-    # Allow nodes to communicate with RDS
-    egress_rds = {
-      description              = "Node to RDS"
-      protocol                 = "tcp"
-      from_port                = 5432
-      to_port                  = 5432
-      type                     = "egress"
-      source_security_group_id = aws_security_group.rds.id
     }
   }
 

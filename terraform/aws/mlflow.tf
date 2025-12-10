@@ -30,7 +30,7 @@ resource "kubernetes_deployment" "mlflow" {
 
     labels = {
       app     = "mlflow-server"
-      version = "v2.9.2"
+      version = "v3.7.0"
     }
   }
 
@@ -47,7 +47,7 @@ resource "kubernetes_deployment" "mlflow" {
       metadata {
         labels = {
           app     = "mlflow-server"
-          version = "v2.9.2"
+          version = "v3.7.0"
         }
 
         annotations = {
@@ -110,7 +110,7 @@ resource "kubernetes_deployment" "mlflow" {
 
           args = [
             <<-EOT
-              pip install --user --no-cache-dir mlflow==2.9.2 psycopg2-binary boto3 && \
+              pip install --user --no-cache-dir mlflow==3.7.0 psycopg2-binary boto3 && \
               export PATH=$PATH:/root/.local/bin && \
               python3 -c "from urllib.parse import quote_plus; import os; print('postgresql://{}:{}@{}:{}/{}'.format(os.environ['DB_USER'], quote_plus(os.environ['DB_PASSWORD']), os.environ['DB_HOST'], os.environ['DB_PORT'], os.environ['DB_NAME']))" > /tmp/db_uri.txt && \
               mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri $(cat /tmp/db_uri.txt) --default-artifact-root s3://${aws_s3_bucket.mlflow_artifacts.id}/mlflow-artifacts --serve-artifacts --gunicorn-opts '--workers=2 --timeout=120'
@@ -371,6 +371,25 @@ resource "kubernetes_pod_disruption_budget_v1" "mlflow" {
     kubernetes_deployment.mlflow,
     module.eks
   ]
+}
+
+# Wait time for AWS to clean up LoadBalancer resources (NLBs, ENIs) during destroy
+# This prevents VPC destruction failures due to lingering network interfaces
+resource "time_sleep" "wait_for_lb_cleanup" {
+  # This resource does nothing on create, but adds a delay on destroy
+  create_duration = "0s"
+  destroy_duration = "90s"
+
+  # Ensure this waits for the LoadBalancer service to be destroyed first
+  depends_on = [
+    kubernetes_service.mlflow
+  ]
+
+  triggers = {
+    # Recreate if service changes to ensure destroy timing is updated
+    service_name = kubernetes_service.mlflow.metadata[0].name
+    namespace    = kubernetes_service.mlflow.metadata[0].namespace
+  }
 }
 
 # Output MLflow service URL

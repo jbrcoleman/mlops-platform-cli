@@ -54,22 +54,14 @@ resource "aws_security_group" "rds" {
   description = "Security group for MLflow RDS instance"
   vpc_id      = module.vpc.vpc_id
 
-  # Allow PostgreSQL from EKS nodes
-  ingress {
-    description     = "PostgreSQL from EKS nodes"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [module.eks.node_security_group_id]
-  }
-
-  # Allow PostgreSQL from VPC (for debugging/management)
+  # Allow PostgreSQL from VPC (includes EKS nodes and management access)
+  # Using CIDR blocks instead of security group reference to avoid circular dependency during destroy
   ingress {
     description = "PostgreSQL from VPC"
     from_port   = 5432
     to_port     = 5432
     protocol    = "tcp"
-    cidr_blocks = length(var.allowed_cidr_blocks) > 0 ? var.allowed_cidr_blocks : [var.vpc_cidr]
+    cidr_blocks = length(var.allowed_cidr_blocks) > 0 ? concat([var.vpc_cidr], var.allowed_cidr_blocks) : [var.vpc_cidr]
   }
 
   egress {

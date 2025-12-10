@@ -175,7 +175,9 @@ def run(ctx, experiment_path, name, image, cpu, memory, gpu, env, wait):
         env_vars[key] = value
 
     # Add MLflow tracking URI to env vars
-    env_vars["MLFLOW_TRACKING_URI"] = config.mlflow.tracking_uri
+    # Use internal Kubernetes service URL for jobs running in cluster
+    mlflow_uri = f"http://mlflow-server.{config.kubernetes.namespace}.svc.cluster.local:5000"
+    env_vars["MLFLOW_TRACKING_URI"] = mlflow_uri
     env_vars["MLFLOW_EXPERIMENT_NAME"] = name
 
     # Display job configuration

@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install MLflow with PostgreSQL and S3 support
 RUN pip install --no-cache-dir \
-    mlflow==2.9.2 \
+    mlflow==3.7.0 \
     psycopg2-binary \
     boto3
 

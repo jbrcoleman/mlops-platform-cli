@@ -82,9 +82,11 @@ resource "aws_vpc_endpoint" "s3" {
     }
   )
 
-  # Ensure VPC endpoints are not deleted before EKS cluster
+  # Wait for LoadBalancer cleanup before destroying VPC endpoints
+  # This prevents issues with lingering ENIs blocking VPC deletion
   depends_on = [
-    module.eks
+    module.eks,
+    time_sleep.wait_for_lb_cleanup
   ]
 }
 
@@ -104,9 +106,11 @@ resource "aws_vpc_endpoint" "ecr_api" {
     }
   )
 
-  # Ensure VPC endpoints are not deleted before EKS cluster
+  # Wait for LoadBalancer cleanup before destroying VPC endpoints
+  # This prevents issues with lingering ENIs blocking VPC deletion
   depends_on = [
-    module.eks
+    module.eks,
+    time_sleep.wait_for_lb_cleanup
   ]
 }
 
@@ -126,9 +130,11 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
     }
   )
 
-  # Ensure VPC endpoints are not deleted before EKS cluster
+  # Wait for LoadBalancer cleanup before destroying VPC endpoints
+  # This prevents issues with lingering ENIs blocking VPC deletion
   depends_on = [
-    module.eks
+    module.eks,
+    time_sleep.wait_for_lb_cleanup
   ]
 }
 
