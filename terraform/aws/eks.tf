@@ -24,26 +24,24 @@ module "eks" {
   subnet_ids = module.vpc.private_subnets
 
   # Cluster Addons
-  # IMPORTANT: Core addons must be created BEFORE node groups
-  # Using before_compute = true ensures addons are ready before nodes join
+  # NOTE: With EKS Auto Mode, only VPC CNI should use before_compute = true
+  # Auto Mode provisions nodes automatically based on workload requirements
   addons = {
-    # VPC CNI must be first - required for pod networking
+    # VPC CNI must be first - required for pod networking before any compute
     vpc-cni = {
       most_recent                 = true
-      before_compute              = true # Critical: Create before node groups
+      before_compute              = true # Critical: Required for networking setup
       resolve_conflicts_on_create = "OVERWRITE"
       resolve_conflicts_on_update = "OVERWRITE"
     }
-    # Core addons required for cluster functionality
+    # Core addons - Auto Mode will provision nodes for these
     kube-proxy = {
       most_recent                 = true
-      before_compute              = true # Create before node groups
       resolve_conflicts_on_create = "OVERWRITE"
       resolve_conflicts_on_update = "OVERWRITE"
     }
     coredns = {
       most_recent                 = true
-      before_compute              = true # Create before node groups
       resolve_conflicts_on_create = "OVERWRITE"
       resolve_conflicts_on_update = "OVERWRITE"
     }

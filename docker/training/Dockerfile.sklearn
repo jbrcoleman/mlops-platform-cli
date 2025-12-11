@@ -1,0 +1,23 @@
+FROM python:3.10-slim
+
+WORKDIR /workspace
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install requirements
+COPY requirements-common.txt ./
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements-common.txt
+
+# Create directories
+RUN mkdir -p /workspace/code /workspace/data /workspace/outputs
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+CMD ["python", "--version"]

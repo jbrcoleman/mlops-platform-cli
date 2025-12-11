@@ -63,17 +63,14 @@ module "vpc" {
   tags = local.common_tags
 }
 
-# VPC Endpoints for cost optimization and security
-# S3 Gateway Endpoint (no charge)
-# Note: Explicitly depends on EKS to ensure proper destroy order
-resource "aws_vpc_endpoint" "s3" {
-  vpc_id       = module.vpc.vpc_id
-  service_name = "com.amazonaws.${var.aws_region}.s3"
-
-  route_table_ids = concat(
-    module.vpc.private_route_table_ids,
-    module.vpc.public_route_table_ids
-  )
+# VPC Endpoints for security
+resource "aws_vpc_endpoint" "s3_api" {
+  vpc_id              = module.vpc.vpc_id
+  service_name        = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = module.vpc.private_subnets
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  private_dns_enabled = true
 
   tags = merge(
     local.common_tags,

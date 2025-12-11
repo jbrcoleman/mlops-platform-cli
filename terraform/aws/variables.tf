@@ -36,40 +36,12 @@ variable "availability_zones" {
 }
 
 # EKS Configuration
+# Note: Using EKS Auto Mode - compute infrastructure is automatically managed by AWS
+# No need for node instance types, sizes, or disk configuration
 variable "eks_version" {
   description = "Kubernetes version for EKS cluster"
   type        = string
   default     = "1.34"
-}
-
-variable "node_instance_types" {
-  description = "Instance types for EKS worker nodes"
-  type        = list(string)
-  default     = ["t3.medium"]
-}
-
-variable "node_desired_size" {
-  description = "Desired number of worker nodes"
-  type        = number
-  default     = 2
-}
-
-variable "node_min_size" {
-  description = "Minimum number of worker nodes"
-  type        = number
-  default     = 2
-}
-
-variable "node_max_size" {
-  description = "Maximum number of worker nodes"
-  type        = number
-  default     = 4
-}
-
-variable "node_disk_size" {
-  description = "Disk size in GB for worker nodes"
-  type        = number
-  default     = 50
 }
 
 variable "create_eks_kms_key" {
@@ -183,4 +155,36 @@ variable "enable_deletion_protection" {
   description = "Enable deletion protection for RDS"
   type        = bool
   default     = false
+}
+
+# Domain Configuration
+variable "domain_name" {
+  description = "Domain name for MLflow (e.g., democloud.click)"
+  type        = string
+  default     = ""
+}
+
+variable "mlflow_subdomain" {
+  description = "Subdomain for MLflow (e.g., mlflow will create mlflow.democloud.click)"
+  type        = string
+  default     = "mlflow"
+}
+
+# Training Image Configuration
+variable "training_image_pytorch" {
+  description = "Docker image for PyTorch training jobs (uses ECR if available)"
+  type        = string
+  default     = "python:3.10-slim" # Fallback to base image
+}
+
+variable "training_image_tensorflow" {
+  description = "Docker image for TensorFlow training jobs (uses ECR if available)"
+  type        = string
+  default     = "python:3.10-slim"
+}
+
+variable "training_image_sklearn" {
+  description = "Docker image for scikit-learn training jobs (uses ECR if available)"
+  type        = string
+  default     = "python:3.10-slim"
 }

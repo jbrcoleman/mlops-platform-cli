@@ -1,0 +1,7 @@
+# PyTorch ecosystem (CPU version for smaller image size)
+torch==2.2.1+cpu
+torchvision==0.17.1+cpu
+
+# PyTorch utilities
+pytorch-lightning==2.2.0
+torchmetrics==1.3.1

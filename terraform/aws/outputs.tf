@@ -75,8 +75,8 @@ output "mlflow_service_account_arn" {
 }
 
 output "mlflow_url" {
-  description = "MLflow tracking server URL (use kubectl port-forward or create ingress)"
-  value       = "Use: kubectl port-forward svc/mlflow-server -n ${var.k8s_namespace} 5000:5000"
+  description = "MLflow tracking server URL"
+  value       = var.domain_name != "" ? "http://${var.mlflow_subdomain}.${var.domain_name}:5000" : "http://${try(kubernetes_service.mlflow.status[0].load_balancer[0].ingress[0].hostname, "pending")}:5000"
 }
 
 output "configure_kubectl_command" {

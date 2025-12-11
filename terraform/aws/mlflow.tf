@@ -113,7 +113,16 @@ resource "kubernetes_deployment" "mlflow" {
               pip install --user --no-cache-dir mlflow==3.7.0 psycopg2-binary boto3 && \
               export PATH=$PATH:/root/.local/bin && \
               python3 -c "from urllib.parse import quote_plus; import os; print('postgresql://{}:{}@{}:{}/{}'.format(os.environ['DB_USER'], quote_plus(os.environ['DB_PASSWORD']), os.environ['DB_HOST'], os.environ['DB_PORT'], os.environ['DB_NAME']))" > /tmp/db_uri.txt && \
-              mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri $(cat /tmp/db_uri.txt) --default-artifact-root s3://${aws_s3_bucket.mlflow_artifacts.id}/mlflow-artifacts --serve-artifacts --gunicorn-opts '--workers=2 --timeout=120'
+              mlflow server --host 0.0.0.0 --port 5000 \
+                --backend-store-uri $(cat /tmp/db_uri.txt) \
+                --default-artifact-root s3://${aws_s3_bucket.mlflow_artifacts.id}/mlflow-artifacts \
+                --serve-artifacts \
+                --allowed-hosts 'mlflow-server.${var.k8s_namespace}.svc.cluster.local:5000' \
+                --allowed-hosts 'mlflow-server:5000' \
+                --allowed-hosts 'localhost:5000' \
+                --allowed-hosts '127.0.0.1:5000' \
+                --allowed-hosts '${var.mlflow_subdomain}.${var.domain_name}:5000' \
+                --allowed-hosts '*'
             EOT
           ]
 
@@ -259,9 +268,13 @@ resource "kubernetes_service" "mlflow" {
 
     annotations = {
       "service.beta.kubernetes.io/aws-load-balancer-type" = "nlb"
+      "service.beta.kubernetes.io/aws-load-balancer-ssl-cert"    = "arn:aws:acm:us-east-1:296592524620:certificate/205aec49-0748-4f21-ba92-8ed60a90dc0f"
+      "service.beta.kubernetes.io/aws-load-balancer-ssl-ports"   = "443"
+      "service.beta.kubernetes.io/aws-load-balancer-backend-protocol" = "http"
+      "service.beta.kubernetes.io/aws-load-balancer-scheme" = "internet-facing"
+      "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type" = "ip"
     }
   }
-
   spec {
     type = "LoadBalancer"
 
@@ -270,8 +283,8 @@ resource "kubernetes_service" "mlflow" {
     }
 
     port {
-      name        = "http"
-      port        = 5000
+      name        = "https"
+      port        = 443
       target_port = 5000
       protocol    = "TCP"
     }

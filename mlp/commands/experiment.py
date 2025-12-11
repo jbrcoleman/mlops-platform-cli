@@ -1,6 +1,10 @@
 """Experiment management commands for ML Platform CLI."""
 
 import click
+import os
+import yaml
+import subprocess
+import json
 from pathlib import Path
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
@@ -11,6 +15,81 @@ from mlp.utils.logger import setup_logger
 
 console = Console()
 logger = setup_logger(__name__)
+
+
+def load_training_images_from_terraform():
+    """Load training image URLs from Terraform outputs."""
+    default_images = {
+        "pytorch": os.getenv("MLP_TRAINING_IMAGE_PYTORCH", "python:3.10-slim"),
+        "tensorflow": os.getenv("MLP_TRAINING_IMAGE_TENSORFLOW", "python:3.10-slim"),
+        "sklearn": os.getenv("MLP_TRAINING_IMAGE_SKLEARN", "python:3.10-slim"),
+        "simple": os.getenv("MLP_TRAINING_IMAGE_SKLEARN", "python:3.10-slim"),  # simple uses sklearn image
+    }
+
+    try:
+        # Find terraform directory relative to this file
+        terraform_dir = Path(__file__).parent.parent.parent / "terraform" / "aws"
+        if not terraform_dir.exists():
+            return default_images
+
+        result = subprocess.run(
+            ["terraform", "output", "-json"],
+            cwd=terraform_dir,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 0:
+            outputs = json.loads(result.stdout)
+            if "ecr_repository_pytorch" in outputs:
+                default_images["pytorch"] = f"{outputs['ecr_repository_pytorch']['value']}:latest"
+            if "ecr_repository_tensorflow" in outputs:
+                default_images["tensorflow"] = f"{outputs['ecr_repository_tensorflow']['value']}:latest"
+            if "ecr_repository_sklearn" in outputs:
+                default_images["sklearn"] = f"{outputs['ecr_repository_sklearn']['value']}:latest"
+                default_images["simple"] = f"{outputs['ecr_repository_sklearn']['value']}:latest"
+
+    except Exception as e:
+        logger.debug(f"Could not load images from Terraform: {e}")
+
+    return default_images
+
+
+# Load default training images at module level
+DEFAULT_TRAINING_IMAGES = load_training_images_from_terraform()
+
+
+def detect_framework(experiment_path):
+    """Detect the ML framework used in an experiment."""
+    experiment_path = Path(experiment_path)
+
+    # Check for experiment.yaml
+    experiment_yaml = experiment_path / "experiment.yaml"
+    if experiment_yaml.exists():
+        try:
+            with open(experiment_yaml, 'r') as f:
+                config = yaml.safe_load(f)
+                if config and "framework" in config:
+                    return config["framework"]
+        except Exception as e:
+            logger.debug(f"Could not read experiment.yaml: {e}")
+
+    # Check requirements.txt for framework hints
+    requirements_txt = experiment_path / "requirements.txt"
+    if requirements_txt.exists():
+        try:
+            with open(requirements_txt, 'r') as f:
+                content = f.read().lower()
+                if "torch" in content or "pytorch" in content:
+                    return "pytorch"
+                elif "tensorflow" in content:
+                    return "tensorflow"
+        except Exception as e:
+            logger.debug(f"Could not read requirements.txt: {e}")
+
+    # Default to sklearn/simple
+    return "sklearn"
 
 
 @click.group(name="experiment")
@@ -108,8 +187,8 @@ def create(ctx, name, path, template, force):
 @click.option(
     "--image",
     "-i",
-    default="python:3.10-slim",
-    help="Docker image to use for the training job"
+    default=None,
+    help="Docker image to use for the training job (auto-detected by default)"
 )
 @click.option(
     "--cpu",
@@ -146,9 +225,14 @@ def run(ctx, experiment_path, name, image, cpu, memory, gpu, env, wait):
     Packages the experiment code and submits it as a Kubernetes Job.
     Integrates with MLflow for experiment tracking.
 
+    The CLI automatically detects the ML framework (PyTorch, TensorFlow, or scikit-learn)
+    and uses a pre-built custom image with all dependencies installed, significantly
+    reducing job startup time and NAT gateway costs.
+
     Example:
         mlp experiment run ./my-model --gpu 1 --wait
         mlp experiment run ./my-model -e LEARNING_RATE=0.001 -e EPOCHS=10
+        mlp experiment run ./my-model --image custom-image:latest  # Override auto-detection
     """
     config = ctx.obj['config']
     experiment_path = Path(experiment_path).resolve()
@@ -164,6 +248,13 @@ def run(ctx, experiment_path, name, image, cpu, memory, gpu, env, wait):
             "Use lowercase alphanumeric, hyphens, and underscores (3-50 chars)"
         )
         raise click.Abort()
+
+    # Auto-detect framework and select appropriate image if not specified
+    if image is None:
+        framework = detect_framework(experiment_path)
+        image = DEFAULT_TRAINING_IMAGES.get(framework, DEFAULT_TRAINING_IMAGES["sklearn"])
+        console.print(f"[dim]Auto-detected framework: {framework}[/dim]")
+        console.print(f"[dim]Using custom image: {image}[/dim]\n")
 
     # Parse environment variables
     env_vars = {}

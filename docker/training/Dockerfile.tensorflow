@@ -1,0 +1,31 @@
+FROM python:3.10-slim
+
+# Set working directory
+WORKDIR /workspace
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements-common.txt requirements-tensorflow.txt ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements-common.txt && \
+    pip install --no-cache-dir -r requirements-tensorflow.txt
+
+# Create directories
+RUN mkdir -p /workspace/code /workspace/data /workspace/outputs
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    MLFLOW_TRACKING_URI="" \
+    MLFLOW_EXPERIMENT_NAME=""
+
+CMD ["python", "--version"]
