@@ -231,6 +231,7 @@ def submit_training_job(
             labels={"app": "ml-training", "job": job_name}
         ),
         spec=client.V1PodSpec(
+            service_account_name="training-sa",  # Enable IRSA for S3 access
             restart_policy="Never",
             containers=[container],
             volumes=[volume]

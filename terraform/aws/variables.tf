@@ -91,7 +91,7 @@ variable "rds_backup_retention_period" {
 variable "mlflow_image" {
   description = "MLflow Docker image"
   type        = string
-  default     = "python:3.10-slim" # Will install MLflow with PostgreSQL support
+  default     = "296592524620.dkr.ecr.us-east-1.amazonaws.com/mlflow-postgres:3.7.0" # Custom image with PostgreSQL support
 }
 
 variable "mlflow_replicas" {

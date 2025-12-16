@@ -110,8 +110,6 @@ resource "kubernetes_deployment" "mlflow" {
 
           args = [
             <<-EOT
-              pip install --user --no-cache-dir mlflow==3.7.0 psycopg2-binary boto3 && \
-              export PATH=$PATH:/root/.local/bin && \
               python3 -c "from urllib.parse import quote_plus; import os; print('postgresql://{}:{}@{}:{}/{}'.format(os.environ['DB_USER'], quote_plus(os.environ['DB_PASSWORD']), os.environ['DB_HOST'], os.environ['DB_PORT'], os.environ['DB_NAME']))" > /tmp/db_uri.txt && \
               mlflow server --host 0.0.0.0 --port 5000 \
                 --backend-store-uri $(cat /tmp/db_uri.txt) \
@@ -285,6 +283,13 @@ resource "kubernetes_service" "mlflow" {
     port {
       name        = "https"
       port        = 443
+      target_port = 5000
+      protocol    = "TCP"
+    }
+
+    port {
+      name        = "http"
+      port        = 5000
       target_port = 5000
       protocol    = "TCP"
     }

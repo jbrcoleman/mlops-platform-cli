@@ -64,13 +64,14 @@ module "vpc" {
 }
 
 # VPC Endpoints for security
-resource "aws_vpc_endpoint" "s3_api" {
-  vpc_id              = module.vpc.vpc_id
-  service_name        = "com.amazonaws.${var.aws_region}.s3"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = module.vpc.private_subnets
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
-  private_dns_enabled = true
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = module.vpc.vpc_id
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = concat(
+    module.vpc.private_route_table_ids,
+    module.vpc.public_route_table_ids
+  )
 
   tags = merge(
     local.common_tags,
@@ -79,8 +80,6 @@ resource "aws_vpc_endpoint" "s3_api" {
     }
   )
 
-  # Wait for LoadBalancer cleanup before destroying VPC endpoints
-  # This prevents issues with lingering ENIs blocking VPC deletion
   depends_on = [
     module.eks,
     time_sleep.wait_for_lb_cleanup
