@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM pytorch/pytorch:2.2.1-cuda12.1-cudnn8-runtime
 
 # Set working directory
 WORKDIR /workspace
@@ -15,9 +15,10 @@ RUN apt-get update && \
 COPY requirements-common.txt requirements-pytorch.txt ./
 
 # Install Python dependencies
+# Note: PyTorch with CUDA support is already included in the base image
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements-common.txt && \
-    pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-pytorch.txt
+    pip install --no-cache-dir -r requirements-pytorch.txt
 
 # Create directories for code and data
 RUN mkdir -p /workspace/code /workspace/data /workspace/outputs

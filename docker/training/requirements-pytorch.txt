@@ -1,6 +1,6 @@
-# PyTorch ecosystem (CPU version for smaller image size)
-torch==2.2.1+cpu
-torchvision==0.17.1+cpu
+# PyTorch ecosystem
+# Note: torch, torchvision, and torchaudio with CUDA support are provided by the base image
+# Do not install them here to avoid conflicts
 
 # PyTorch utilities
 pytorch-lightning==2.2.0

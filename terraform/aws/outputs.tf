@@ -76,7 +76,7 @@ output "mlflow_service_account_arn" {
 
 output "mlflow_url" {
   description = "MLflow tracking server URL"
-  value       = var.domain_name != "" ? "http://${var.mlflow_subdomain}.${var.domain_name}:5000" : "http://${try(kubernetes_service.mlflow.status[0].load_balancer[0].ingress[0].hostname, "pending")}:5000"
+  value       = var.domain_name != "" ? "https://${var.mlflow_subdomain}.${var.domain_name}" : "http://${try(kubernetes_service.mlflow.status[0].load_balancer[0].ingress[0].hostname, "pending")}:5000"
 }
 
 output "configure_kubectl_command" {
@@ -92,7 +92,7 @@ output "mlp_config_snippet" {
       namespace = var.k8s_namespace
     }
     mlflow = {
-      tracking_uri  = "http://localhost:5000" # or configure ingress
+      tracking_uri  = var.domain_name != "" ? "https://${var.mlflow_subdomain}.${var.domain_name}" : "http://${try(kubernetes_service.mlflow.status[0].load_balancer[0].ingress[0].hostname, "localhost")}:5000"
       artifact_root = "s3://${aws_s3_bucket.mlflow_artifacts.id}/mlflow-artifacts"
     }
     dvc = {

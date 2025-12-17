@@ -1,0 +1,98 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: gpu-workloads
+  labels:
+    app.kubernetes.io/managed-by: mlops-platform
+spec:
+  # Disruption settings - allows Karpenter to optimize costs
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m
+    budgets:
+    - nodes: "10%"
+
+  template:
+    metadata:
+      labels:
+        workload-type: gpu
+    spec:
+      # Expire nodes after 7 days to ensure fresh instances
+      expireAfter: 168h
+
+      # Use the default EKS Auto Mode NodeClass
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind: NodeClass
+        name: default
+
+      # Requirements for GPU instances
+      requirements:
+        # On-demand instances for reliability (change to spot for cost savings)
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+            - on-demand
+
+        # GPU instance families (g = GPU optimized, p = GPU compute)
+        - key: eks.amazonaws.com/instance-category
+          operator: In
+          values:
+            - g  # G4dn, G5 instances (most cost-effective)
+
+        # Generation 4+ for modern GPUs
+        - key: eks.amazonaws.com/instance-generation
+          operator: Gt
+          values:
+            - "3"
+
+        # Standard architecture
+        - key: kubernetes.io/arch
+          operator: In
+          values:
+            - amd64
+
+        - key: kubernetes.io/os
+          operator: In
+          values:
+            - linux
+
+        # Specific instance sizes (g4dn.xlarge = 1 GPU, g4dn.2xlarge = 1 GPU)
+        # Uncomment to restrict specific sizes:
+        # - key: node.kubernetes.io/instance-type
+        #   operator: In
+        #   values:
+        #     - g4dn.xlarge
+        #     - g4dn.2xlarge
+        #     - g5.xlarge
+        #     - g5.2xlarge
+
+      # Taints to ensure only GPU workloads run on these expensive nodes
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule
+
+      # Graceful termination period
+      terminationGracePeriod: 1h
+---
+# Example Pod specification showing how to use the GPU NodePool
+# apiVersion: v1
+# kind: Pod
+# metadata:
+#   name: gpu-test
+# spec:
+#   tolerations:
+#     - key: nvidia.com/gpu
+#       operator: Equal
+#       value: "true"
+#       effect: NoSchedule
+#   nodeSelector:
+#     workload-type: gpu
+#   containers:
+#     - name: cuda-test
+#       image: nvidia/cuda:12.0.0-base-ubuntu22.04
+#       command: ["nvidia-smi"]
+#       resources:
+#         limits:
+#           nvidia.com/gpu: 1
